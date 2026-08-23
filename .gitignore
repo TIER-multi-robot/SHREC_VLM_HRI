@@ -1,0 +1,17 @@
+# Logs
+*.log
+*.pid
+
+# Outputs
+output/
+output_pydantic/
+output_datasets/
+tmp/
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+Thumbs.db
+.DS_Store

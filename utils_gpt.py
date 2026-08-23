@@ -1,4 +1,5 @@
-
+from __future__ import annotations
+ 
 import pdb
 import ast
 import os
@@ -8,36 +9,47 @@ import time
 import openai
 from openai import OpenAI
 import google.generativeai as genai
-import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, LlavaNextVideoProcessor, LlavaNextVideoForConditionalGeneration
-from transformers import AutoProcessor, LlavaForConditionalGeneration
-import av
 import cv2
-from huggingface_hub import hf_hub_download
 from PIL import Image
 import random
-from transformers import pipeline
+
+# Heavy deps (torch/transformers/decord/av/torchvision/matplotlib/easydict) are only
+# needed by the open-source-VLM handlers (llava, video-chat2, kangaroo, etc.). The
+# Gemini / GPT / Gemini-Robotics-ER paths do not use them; import optionally so those
+# paths run in a lightweight environment.
+try:
+    import torch
+    from transformers import (AutoTokenizer, AutoModelForCausalLM,
+        LlavaNextVideoProcessor, LlavaNextVideoForConditionalGeneration,
+        AutoProcessor, LlavaForConditionalGeneration, AutoModel,
+        StoppingCriteria, StoppingCriteriaList, pipeline)
+    import av
+    from huggingface_hub import hf_hub_download
+    from decord import VideoReader, cpu
+    import decord
+    from torchvision.transforms import PILToTensor
+    from torchvision import transforms
+    import matplotlib.pyplot as plt
+    from easydict import EasyDict
+    decord.bridge.set_bridge("torch")
+except Exception as _e:
+    print("[utils_gpt] optional heavy deps not installed (open-source-VLM handlers disabled):", _e)
+    torch = None
+    AutoTokenizer = AutoModelForCausalLM = LlavaNextVideoProcessor = LlavaNextVideoForConditionalGeneration = None
+    AutoProcessor = LlavaForConditionalGeneration = AutoModel = None
+    StoppingCriteria = StoppingCriteriaList = pipeline = None
+    av = None
+    hf_hub_download = None
+    VideoReader = cpu = None
+    decord = None
+    PILToTensor = transforms = None
+    plt = None
+    EasyDict = None
 
 
 client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 genai.configure(api_key=os.environ["GOOGLE_GENAI_API_KEY"])
 openai.api_key=os.environ["OPENAI_API_KEY"]
-
-
-from transformers import AutoModel
-
-import torch
-from transformers import StoppingCriteria, StoppingCriteriaList
-from decord import VideoReader, cpu
-import numpy as np
-from PIL import Image
-from torchvision.transforms import PILToTensor
-import matplotlib.pyplot as plt
-from easydict import EasyDict
-from torchvision import transforms
-import decord
-import time
-decord.bridge.set_bridge("torch")
 
 
 def get_few_shot_examples(processed_dataset, current_sample, num_examples=3):
@@ -167,7 +179,7 @@ def get_context_emb(conv, model, img_list, answer_prompt=None, print_res=False):
 def ask(text, conv):
     conv.messages.append([conv.roles[0], text])
         
-class StoppingCriteriaSub(StoppingCriteria):
+class StoppingCriteriaSub(StoppingCriteria if StoppingCriteria is not None else object):
     def __init__(self, stops=[], encounters=1):
         super().__init__()
         self.stops = stops
@@ -320,7 +332,9 @@ class Agent:
         self.inference_type = inference_type
         self.task_type = task_type
 
-        if 'gemini' in self.model_info:
+        if self.model_info == 'gemini-robotics-er-2-preview':
+            pass  # Gemini Robotics-ER uses the google-genai SDK; client is created per-call in chat()
+        elif 'gemini' in self.model_info:
             self.model = genai.GenerativeModel(self.model_info)
             self._chat = self.model.start_chat(history=[])
         
@@ -391,29 +405,63 @@ class Agent:
         print('\nformatted message\n')
         print(message)
         # pdb.set_trace()
-        if self.model_info in ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-flash-8b']:
+        if self.model_info == 'gemini-robotics-er-2-preview':
             try:
+                from google import genai as _genai
+                from google.genai import types as _types
+                import base64 as _b64
+                import io as _io
+                from PIL import Image as _PILImage
+                _client = _genai.Client(api_key=os.environ["GOOGLE_GENAI_API_KEY"])
+                _contents = []
+                if img_frames:
+                    _mid = len(img_frames) // 2
+                    _raw = _b64.b64decode(img_frames[_mid])
+                    _contents.append(_PILImage.open(_io.BytesIO(_raw)))
+                _contents.append(message)
+                _resp = _client.models.generate_content(
+                    model=self.model_info,
+                    contents=_contents,
+                    config=_types.GenerateContentConfig(temperature=0),
+                )
+                return _resp.text
+            except Exception as e:
+                print(e)
+                return "[ERROR]"
+
+        elif self.model_info in ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-flash-8b']:
+            try:
+                from google import genai as _genai_new
+                from google.genai import types as _types_new
+                _client = _genai_new.Client(api_key=os.environ["GOOGLE_GENAI_API_KEY"])
+
                 # CoT
                 if self.inference_type == 'cot':
                     message += " Let's think step-by-step."
 
-                # Upload the video file
-                video_file = genai.upload_file(path=vid_path)
-                pdb.set_trace()
-                while video_file.state.name == "PROCESSING":
-                    print('.', end='')
-                    time.sleep(10)
-                    video_file = genai.get_file(video_file.name)
-
-                if video_file.state.name == "FAILED":
-                    raise ValueError(video_file.state.name)
-
-                # Initialize the generative model
-                model = genai.GenerativeModel(model_name=self.model_info)
-
-                # Make the LLM request
+                # Upload the video file via new SDK
                 print("Making LLM inference request...")
-                response = model.generate_content([video_file, message], request_options={"timeout": 600})
+                if vid_path:
+                    video_file = _client.files.upload(file=vid_path)
+                    while video_file.state.name == "PROCESSING":
+                        print('.', end='')
+                        time.sleep(10)
+                        video_file = _client.files.get(name=video_file.name)
+
+                    if video_file.state.name == "FAILED":
+                        raise ValueError(video_file.state.name)
+
+                    response = _client.models.generate_content(
+                        model=self.model_info,
+                        contents=[video_file, message],
+                        config=_types_new.GenerateContentConfig(temperature=0),
+                    )
+                else:
+                    response = _client.models.generate_content(
+                        model=self.model_info,
+                        contents=[message],
+                        config=_types_new.GenerateContentConfig(temperature=0),
+                    )
 
                 # Extract token usage metadata
                 usage_metadata = response.usage_metadata
@@ -421,28 +469,7 @@ class Agent:
                     prompt_token_count = usage_metadata.prompt_token_count
                     output_token_count = usage_metadata.candidates_token_count
                     total_token_count = usage_metadata.total_token_count
-
-                    # Pricing details for the Gemini models
-                    if self.model_info == 'gemini-1.5-pro':
-                        input_price_per_1M = 2.50  # $2.50 per 1M input tokens
-                        output_price_per_1M = 10.00  # $10.00 per 1M output tokens
-                    elif self.model_info == 'gemini-1.5-flash':
-                        input_price_per_1M = 0.15  # $1.50 per 1M input tokens
-                        output_price_per_1M = 0.6  # $6.00 per 1M output tokens
-                    elif self.model_info == 'gemini-1.5-flash-8b':
-                        input_price_per_1M = 0.075  # $0.80 per 1M input tokens
-                        output_price_per_1M = 0.30  # $4.00 per 1M output tokens
-                    elif self.model_info == 'gemini-2.0-flash-exp':
-                        input_price_per_1M = 0.15  # $1.50 per 1M input tokens
-                        output_price_per_1M = 0.6  # $6.00 per 1M output tokens
-                    # Calculate costs
-                    input_cost = (prompt_token_count / 1_000_000) * input_price_per_1M
-                    output_cost = (output_token_count / 1_000_000) * output_price_per_1M
-                    total_cost = input_cost + output_cost
-
-                    # Print token usage and costs
                     print(f"Prompt Tokens: {prompt_token_count}, Output Tokens: {output_token_count}, Total Tokens: {total_token_count}")
-                    print(f"Input Cost: ${input_cost:.6f}, Output Cost: ${output_cost:.6f}, Total Cost: ${total_cost:.6f}")
 
                 return response.text
             except Exception as e:

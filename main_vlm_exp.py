@@ -30,6 +30,7 @@ parser.add_argument("--seed", type=str, default=0)
 parser.add_argument("--video", action="store_true")
 parser.add_argument("--csv_path", type=str, default='../shrec_empathic.csv')
 parser.add_argument("--images_dir", type=str, default='../shrec_empathic')
+parser.add_argument("--max_samples", type=int, default=0, help="Cap samples processed (0 = all). Used for gates / probes.")
 
 args = parser.parse_args()
 
@@ -73,7 +74,10 @@ else:
 
 print('Initializing Agent...')
 ##INITIALIZE AGENT## Uncomment later after debug
-from vlmeval.config import supported_VLM
+try:
+    from vlmeval.config import supported_VLM
+except ImportError:
+    supported_VLM = None
 
 if model_name == 'paligemma':
     model = supported_VLM['paligemma-3b-mix-448']()
@@ -108,6 +112,9 @@ if model_name == 'GPT4o_Lang':
 if model_name in ['gemini-1.5-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-flash-8b', 'gemini-1.5-pro', 'llava_video_next', 'llava_video_next_7b_dpo', 'o1', 'o1-mini']:
     from utils_gpt import * 
     model = Agent(base_prompt, model_info=model_name, inference_type=None, task_type=args.task_type)
+if model_name == 'GeminiRoboticsER':
+    from utils_gpt import * 
+    model = Agent(base_prompt, model_info='gemini-robotics-er-2-preview', inference_type='zero-shot', task_type=args.task_type)
 if model_name in ['GPT4o_Image_few_shot']:
     from utils_gpt import * 
     model = Agent(base_prompt, model_info='gpt-4o', inference_type='few-shot', task_type=args.task_type)
@@ -120,7 +127,10 @@ if model_name in ['DeepSeek-R1-Distill-Qwen-32B']:
     m_, t_ = model.load()
     
 
-from transformers import pipeline
+try:
+    from transformers import pipeline
+except ImportError:
+    pipeline = None
 
 
 if model_name in ['GPT4o_MINI_Lang', 'GPT4o_Lang', 'Llama-3.2-3B', 'Llama-3.2-3B-Instruct', 'o1', 'o1-mini']:
@@ -128,7 +138,16 @@ if model_name in ['GPT4o_MINI_Lang', 'GPT4o_Lang', 'Llama-3.2-3B', 'Llama-3.2-3B
 
 
 print('\n Dataset Size is: ', len(processed_dataset))
+if args.max_samples and args.max_samples > 0:
+    processed_dataset = processed_dataset[:args.max_samples]
+    print('Capped to', len(processed_dataset), 'samples (--max_samples)')
+
 for i, sample in enumerate(processed_dataset):
+
+    base64Frames = []
+    vid_path = ""
+    transcription = ""
+    img_path_list = []
 
     if video:
         video_id = sample["video_id"]
@@ -148,8 +167,11 @@ for i, sample in enumerate(processed_dataset):
         img_path_list = get_frame_paths(frames_dir, sample['timestamp']['start'] * frame_rate, sample['timestamp']['end']* frame_rate)
         
 
+        if model_name == 'GeminiRoboticsER' and len(img_path_list) > 0:
+            img_path_list = [img_path_list[len(img_path_list) // 2]]
 
-        if model_name in ['o1', 'o1-mini','gemini-1.5-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-flash-8b', 'gemini-1.5-pro', 'llava_video_next', 'llava_video_next_7b_dpo', 'GPT4o_Image_cot', 'GPT4o_Image_few_shot', "GPT4o_MINI_Lang", "GPT4o_Lang", "GPT4o_MINI_Image", "GPT4o_Image"]:
+
+        if model_name in ['o1', 'o1-mini','gemini-1.5-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-flash-8b', 'gemini-1.5-pro', 'llava_video_next', 'llava_video_next_7b_dpo', 'GPT4o_Image_cot', 'GPT4o_Image_few_shot', "GPT4o_MINI_Lang", "GPT4o_Lang", "GPT4o_MINI_Image", "GPT4o_Image", 'GeminiRoboticsER']:
             print('extract video for gemini/openai models')
             base64Frames = process_images_base64(img_path_list)
             
@@ -404,7 +426,7 @@ for i, sample in enumerate(processed_dataset):
     else:
         img_path_list.append(full_prompt)
 
-    if model_name in ['o1', 'o1-mini', 'gemini-1.5-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-flash-8b', 'gemini-1.5-pro', 'llava_video_next', 'llava_video_next_7b_dpo', 'GPT4o_Image_cot', "GPT4o_MINI_Lang", "GPT4o_Lang", "GPT4o_MINI_Image", "GPT4o_Image"]:
+    if model_name in ['o1', 'o1-mini', 'gemini-1.5-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-flash-8b', 'gemini-1.5-pro', 'llava_video_next', 'llava_video_next_7b_dpo', 'GPT4o_Image_cot', "GPT4o_MINI_Lang", "GPT4o_Lang", "GPT4o_MINI_Image", "GPT4o_Image", 'GeminiRoboticsER']:
         response = model.chat(full_prompt, img_frames=base64Frames, transcription=transcription, vid_path=vid_path, examples=None)
     elif model_name == 'GPT4o_Image_few_shot':
         examples = get_few_shot_examples(processed_dataset, sample)
@@ -434,7 +456,6 @@ for i, sample in enumerate(processed_dataset):
     results.append({'question': full_prompt, 'response': response, 'label': answer, 'rationale': reason})
  
     print("[INFO] Total number of processed results:", "{}/{}".format(str(count),str(len(processed_dataset))))
-    break
 
 folder_path = os.path.join(os.getcwd(), 'output')
 if not os.path.exists(folder_path):

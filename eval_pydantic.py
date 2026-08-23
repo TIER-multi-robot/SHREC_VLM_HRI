@@ -65,20 +65,19 @@ if __name__ == "__main__":
 
                 if not os.path.exists(output_result_path):
                     print(filename)
-                    task = filename
                     with open(result_path, 'r') as file:
                         data = json.load(file)
 
-                    sample = data[0]
-                    question = "[ANSWER CHOICES]: {} \n ".format(sample['question'].split('\n\n')[-1])
+                    for sample in data:
+                        question = "[ANSWER CHOICES]: {} \n ".format(sample['question'].split('\n\n')[-1])
 
-                    response = "[RESPONSE]: {}".format(sample['response']) 
-                    completion = parse_answer(question + response, task)
-                    event = completion.choices[0].message.parsed
-                    sample['pre-response'] = sample['response']
-                    sample['response'] = event.answer
-                    sample['val_explanation'] = event.explanation
-                    curr_exp_result.append(sample)
+                        response = "[RESPONSE]: {}".format(sample['response']) 
+                        completion = parse_answer(question + response, filename)
+                        event = completion.choices[0].message.parsed
+                        sample['pre-response'] = sample['response']
+                        sample['response'] = event.answer
+                        sample['val_explanation'] = event.explanation
+                        curr_exp_result.append(sample)
                     
                     with open(output_result_path, 'w') as f:
                         json.dump(curr_exp_result, f)
