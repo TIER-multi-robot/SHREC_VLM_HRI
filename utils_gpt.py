@@ -326,11 +326,12 @@ def read_video_pyav(container, indices):
     return np.stack([x.to_ndarray(format="rgb24") for x in frames])
 
 class Agent:
-    def __init__(self, instruction, model_info=None, inference_type='zero-shot', task_type='detection'):
+    def __init__(self, instruction, model_info=None, inference_type='zero-shot', task_type='detection', er_video_mode='frame'):
         self.instruction = instruction
         self.model_info = model_info
         self.inference_type = inference_type
         self.task_type = task_type
+        self.er_video_mode = er_video_mode
 
         if self.model_info == 'gemini-robotics-er-2-preview':
             pass  # Gemini Robotics-ER uses the google-genai SDK; client is created per-call in chat()
@@ -411,13 +412,26 @@ class Agent:
                 from google.genai import types as _types
                 import base64 as _b64
                 import io as _io
+                import time as _time
                 from PIL import Image as _PILImage
                 _client = _genai.Client(api_key=os.environ["GOOGLE_GENAI_API_KEY"])
                 _contents = []
-                if img_frames:
+
+                if self.er_video_mode == 'video' and vid_path:
+                    print("Uploading reconstructed video to Files API...")
+                    _vf = _client.files.upload(file=vid_path)
+                    while _vf.state.name == "PROCESSING":
+                        print('.', end='')
+                        _time.sleep(5)
+                        _vf = _client.files.get(name=_vf.name)
+                    if _vf.state.name == "FAILED":
+                        raise ValueError("Video file processing failed")
+                    _contents.append(_vf)
+                elif img_frames:
                     _mid = len(img_frames) // 2
                     _raw = _b64.b64decode(img_frames[_mid])
                     _contents.append(_PILImage.open(_io.BytesIO(_raw)))
+
                 _contents.append(message)
                 _resp = _client.models.generate_content(
                     model=self.model_info,

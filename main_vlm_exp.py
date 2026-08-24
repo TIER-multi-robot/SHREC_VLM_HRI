@@ -31,6 +31,7 @@ parser.add_argument("--video", action="store_true")
 parser.add_argument("--csv_path", type=str, default='../shrec_empathic.csv')
 parser.add_argument("--images_dir", type=str, default='../shrec_empathic')
 parser.add_argument("--max_samples", type=int, default=0, help="Cap samples processed (0 = all). Used for gates / probes.")
+parser.add_argument("--er_video_mode", type=str, default='frame', choices=['frame', 'video'], help="GeminiRoboticsER visual input mode: 'frame' = single midpoint still frame, 'video' = reconstructed mp4 from stills (via Files API).")
 
 args = parser.parse_args()
 
@@ -114,7 +115,7 @@ if model_name in ['gemini-1.5-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-flash-
     model = Agent(base_prompt, model_info=model_name, inference_type=None, task_type=args.task_type)
 if model_name == 'GeminiRoboticsER':
     from utils_gpt import * 
-    model = Agent(base_prompt, model_info='gemini-robotics-er-2-preview', inference_type='zero-shot', task_type=args.task_type)
+    model = Agent(base_prompt, model_info='gemini-robotics-er-2-preview', inference_type='zero-shot', task_type=args.task_type, er_video_mode=args.er_video_mode)
 if model_name in ['GPT4o_Image_few_shot']:
     from utils_gpt import * 
     model = Agent(base_prompt, model_info='gpt-4o', inference_type='few-shot', task_type=args.task_type)
@@ -176,7 +177,7 @@ for i, sample in enumerate(processed_dataset):
             base64Frames = process_images_base64(img_path_list)
             
             vid_path = ""
-            if 'gemini' in model_name:
+            if 'gemini' in model_name or (model_name == 'GeminiRoboticsER' and args.er_video_mode == 'video'):
                 vid_path = fill_and_write_video(frames_dir, './tmp', fps=frame_rate)
             
             if 'transcript' in sample.keys():
