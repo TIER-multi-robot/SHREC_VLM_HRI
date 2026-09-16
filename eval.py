@@ -3,6 +3,11 @@ import json
 import pdb
 from natsort import natsorted
 
+try:
+    from sklearn.metrics import f1_score
+except ImportError:
+    f1_score = None
+
 
 
 dataset = 'empathic'
@@ -14,7 +19,7 @@ key_dict = {"A": "Emotions", "B": "Engagement", "C": "Conversational Mechanics",
 exps = os.listdir(dir_path)
 string_list = []
 for exp in exps: 
-        
+    
     exp_list = exp.split("_")
     
 
@@ -35,6 +40,10 @@ for exp in exps:
         continue
 
     correct_count = 0
+    pred_labels = []
+    gold_labels = []
+    partial_match_count = 0
+
     for sample in data: 
 
         if len(sample['response']) == 0:
@@ -48,16 +57,30 @@ for exp in exps:
   
         answer_list = sample['response']
         if 'detection' in task:
+            pred = None
+            gold = None
             if 'social competence' in answer.lower() or 'A' in answer:
+                pred = 'competence'
                 if sample['label'] == False:
                     correct_count += 1 
             elif 'social error' in answer.lower() or 'B' in answer:
+                pred = 'error'
                 if sample['label'] == True:
                     correct_count += 1
             elif 'C' in answer or 'none' in answer.lower(): 
+                pred = 'none'
                 if sample['label'] is None:
                     correct_count += 1 
-        
+            
+            if sample['label'] is True:
+                gold = 'error'
+            elif sample['label'] is False:
+                gold = 'competence'
+            else:
+                gold = 'none'
+            pred_labels.append(pred)
+            gold_labels.append(gold)
+
         if 'attribute' in task:
             
             
@@ -75,6 +98,16 @@ for exp in exps:
             if sample['label'][answer_v]: 
 
                 correct_count += 1 
+
+            gold_attrs = [k for k, v in sample['label'].items() if v == True]
+            pred_attrs = [key_dict[k] for k in key_dict if k in answer_list]
+            if any(p in gold_attrs for p in pred_attrs):
+                partial_match_count += 1
+
+            gold_vec = [1 if sample['label'].get(v, False) else 0 for v in key_dict.values()]
+            pred_vec = [1 if v in pred_attrs else 0 for v in key_dict.values()]
+            pred_labels.append(pred_vec)
+            gold_labels.append(gold_vec)
 
 
         if 'attribute_agreed_multiple'in exp or 'attribute_disagree' in exp:
@@ -119,3 +152,14 @@ for exp in exps:
     res_string = "Accuracy for {}: {}".format(exp, accuracy)
     
     print(res_string)
+
+    if f1_score is not None and len(pred_labels) > 0:
+        if 'detection' in task:
+            labels_set = sorted(set(gold_labels + pred_labels))
+            macro_f1 = f1_score(gold_labels, pred_labels, labels=labels_set, average='macro', zero_division=0)
+            print("  Macro-F1 for {}: {:.3f}".format(exp, macro_f1))
+        elif 'attribute' in task and 'attribute_agreed_multiple' not in exp:
+            macro_f1 = f1_score(gold_labels, pred_labels, average='macro', zero_division=0)
+            print("  Macro-F1 for {}: {:.3f}".format(exp, macro_f1))
+            pm = round(partial_match_count / len(data), 3)
+            print("  Partial Match for {}: {}".format(exp, pm))

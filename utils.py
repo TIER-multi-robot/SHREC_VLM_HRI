@@ -534,3 +534,41 @@ def fill_and_write_video(frame_dir, output_dir, fps=24):
     out.release()
     print(f"Video saved to {output_video_path}")
     return output_video_path
+
+
+def write_segment_video_1hz(img_paths, output_dir='./tmp'):
+    """Stitch segment-scoped frames into a 1 fps mp4 for video-based VLMs.
+
+    This matches the SHREC paper's 1 Hz temporal resolution protocol: the released
+    dataset frames are ~1 Hz samples, and this function writes them as a video at
+    1 frame per second (no gap-filling, no upscaling). Only the provided frames
+    (already scoped to the annotated segment) are included.
+    """
+    import cv2 as _cv2
+    import os as _os
+    _os.makedirs(output_dir, exist_ok=True)
+
+    if not img_paths:
+        raise ValueError("No frame paths provided for segment video.")
+
+    first_frame = _cv2.imread(img_paths[0])
+    if first_frame is None:
+        raise ValueError(f"Failed to read {img_paths[0]}")
+    height, width, _ = first_frame.shape
+
+    output_video_path = _os.path.join(output_dir, 'segment_1hz.mp4')
+    fourcc = _cv2.VideoWriter_fourcc(*'mp4v')
+    out = _cv2.VideoWriter(output_video_path, fourcc, 1, (width, height))
+
+    for img_path in img_paths:
+        frame = _cv2.imread(img_path)
+        if frame is None:
+            print(f"Warning: Could not read {img_path}, skipping.")
+            continue
+        if frame.shape[:2] != (height, width):
+            frame = _cv2.resize(frame, (width, height))
+        out.write(frame)
+
+    out.release()
+    print(f"1Hz segment video saved to {output_video_path} ({len(img_paths)} frames)")
+    return output_video_path

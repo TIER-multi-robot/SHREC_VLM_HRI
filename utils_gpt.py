@@ -332,7 +332,6 @@ class Agent:
         self.inference_type = inference_type
         self.task_type = task_type
         self.er_video_mode = er_video_mode
-
         if self.model_info == 'gemini-robotics-er-2-preview':
             pass  # Gemini Robotics-ER uses the google-genai SDK; client is created per-call in chat()
         elif 'gemini' in self.model_info:
@@ -418,7 +417,7 @@ class Agent:
                 _contents = []
 
                 if self.er_video_mode == 'video' and vid_path:
-                    print("Uploading reconstructed video to Files API...")
+                    print("Uploading 1Hz segment video to Files API...")
                     _vf = _client.files.upload(file=vid_path)
                     while _vf.state.name == "PROCESSING":
                         print('.', end='')
@@ -427,6 +426,10 @@ class Agent:
                     if _vf.state.name == "FAILED":
                         raise ValueError("Video file processing failed")
                     _contents.append(_vf)
+                elif self.er_video_mode == 'frames15' and img_frames:
+                    for _b64f in img_frames:
+                        _raw = _b64.b64decode(_b64f)
+                        _contents.append(_PILImage.open(_io.BytesIO(_raw)))
                 elif img_frames:
                     _mid = len(img_frames) // 2
                     _raw = _b64.b64decode(img_frames[_mid])

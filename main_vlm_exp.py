@@ -31,7 +31,8 @@ parser.add_argument("--video", action="store_true")
 parser.add_argument("--csv_path", type=str, default='../shrec_empathic.csv')
 parser.add_argument("--images_dir", type=str, default='../shrec_empathic')
 parser.add_argument("--max_samples", type=int, default=0, help="Cap samples processed (0 = all). Used for gates / probes.")
-parser.add_argument("--er_video_mode", type=str, default='frame', choices=['frame', 'video'], help="GeminiRoboticsER visual input mode: 'frame' = single midpoint still frame, 'video' = reconstructed mp4 from stills (via Files API).")
+parser.add_argument("--er_video_mode", type=str, default='frame', choices=['frame', 'video', 'frames15'], help="GeminiRoboticsER visual input mode: 'frame' = single midpoint still frame, 'video' = 1Hz stitched mp4 from segment frames (via Files API), 'frames15' = up to 15 uniformly sampled frames as images.")
+parser.add_argument("--sample_size", type=int, default=0, help="Sample N examples after shuffle for 3-seed protocol (0 = all). Use with --seed for reproducible subsets.")
 
 args = parser.parse_args()
 
@@ -139,7 +140,10 @@ if model_name in ['GPT4o_MINI_Lang', 'GPT4o_Lang', 'Llama-3.2-3B', 'Llama-3.2-3B
 
 
 print('\n Dataset Size is: ', len(processed_dataset))
-if args.max_samples and args.max_samples > 0:
+if args.sample_size and args.sample_size > 0:
+    processed_dataset = processed_dataset[:args.sample_size]
+    print('Sampled', len(processed_dataset), 'examples (--sample_size, seed={})'.format(args.seed))
+elif args.max_samples and args.max_samples > 0:
     processed_dataset = processed_dataset[:args.max_samples]
     print('Capped to', len(processed_dataset), 'samples (--max_samples)')
 
@@ -168,8 +172,12 @@ for i, sample in enumerate(processed_dataset):
         img_path_list = get_frame_paths(frames_dir, sample['timestamp']['start'] * frame_rate, sample['timestamp']['end']* frame_rate)
         
 
-        if model_name == 'GeminiRoboticsER' and len(img_path_list) > 0:
-            img_path_list = [img_path_list[len(img_path_list) // 2]]
+        if model_name == 'GeminiRoboticsER':
+            if args.er_video_mode == 'frame' and len(img_path_list) > 0:
+                img_path_list = [img_path_list[len(img_path_list) // 2]]
+            elif args.er_video_mode == 'frames15' and len(img_path_list) > 15:
+                step = max(1, len(img_path_list) // 15)
+                img_path_list = img_path_list[::step][:15]
 
 
         if model_name in ['o1', 'o1-mini','gemini-1.5-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-flash-8b', 'gemini-1.5-pro', 'llava_video_next', 'llava_video_next_7b_dpo', 'GPT4o_Image_cot', 'GPT4o_Image_few_shot', "GPT4o_MINI_Lang", "GPT4o_Lang", "GPT4o_MINI_Image", "GPT4o_Image", 'GeminiRoboticsER']:
@@ -177,8 +185,10 @@ for i, sample in enumerate(processed_dataset):
             base64Frames = process_images_base64(img_path_list)
             
             vid_path = ""
-            if 'gemini' in model_name or (model_name == 'GeminiRoboticsER' and args.er_video_mode == 'video'):
+            if 'gemini' in model_name:
                 vid_path = fill_and_write_video(frames_dir, './tmp', fps=frame_rate)
+            elif model_name == 'GeminiRoboticsER' and args.er_video_mode == 'video':
+                vid_path = write_segment_video_1hz(img_path_list, './tmp')
             
             if 'transcript' in sample.keys():
                 transcription = sample['transcript']
