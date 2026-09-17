@@ -22,10 +22,13 @@ def parse_answer(sample, task):
     if 'detection' in task:
         system_prompt =  "Given the [ANSWER CHOICES], extract the answer from the [RESPONSE] among the following options, if the answer does not exist, output 'Does not exist' : (A) Social Competence, (B) Social Error, (C) None"
 
-    if 'attribute' in task:
+    elif 'agreed_multiple' in task:
+        system_prompt = "Given the [RESPONSE], extract whether the answer is 'True' or 'False'. If the answer does not exist, output 'Does not exist' : True, False"
+
+    elif 'attribute' in task:
         system_prompt = "Given the [ANSWER CHOICES], extract the answer from the [RESPONSE] among the following options, there can be multiple. If the answer does not exist, output 'Does not exist' : (A) Recognizing Emotions (B) Recognizing Engagement (C) Recognition of Conversational Mechanics (D) Understanding Knowledge State of Others and Self (E) Understanding Intention of Others (F) Recognizing Social Relationships (G) Recognizing Social Norms including toxicity"
     
-    if 'rationale' in task or 'correction'in task or 'pre' in task or 'post' in task :
+    elif 'rationale' in task or 'correction'in task or 'pre' in task or 'post' in task :
         system_prompt = "Given the [ANSWER CHOICES], extract the answer from the [RESPONSE] among the following options, if the answer does not exist, output 'Does not exist' : (1), (2), (3), (4), (5)"
 
     completion = client.beta.chat.completions.parse(
@@ -48,7 +51,7 @@ if __name__ == "__main__":
         os.makedirs(output_directory)
     start = time.time()
 
-    for task in ['pre', 'post', 'rationale', 'correct', 'detection', 'attribute']:
+    for task in ['pre', 'post', 'rationale', 'correct', 'detection', 'agreed_multiple', 'attribute']:
 
 
         for filename in os.listdir(directory):

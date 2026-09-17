@@ -33,6 +33,7 @@ parser.add_argument("--images_dir", type=str, default='../shrec_empathic')
 parser.add_argument("--max_samples", type=int, default=0, help="Cap samples processed (0 = all). Used for gates / probes.")
 parser.add_argument("--er_video_mode", type=str, default='frame', choices=['frame', 'video', 'frames15'], help="GeminiRoboticsER visual input mode: 'frame' = single midpoint still frame, 'video' = 1Hz stitched mp4 from segment frames (via Files API), 'frames15' = up to 15 uniformly sampled frames as images.")
 parser.add_argument("--sample_size", type=int, default=0, help="Sample N examples after shuffle for 3-seed protocol (0 = all). Use with --seed for reproducible subsets.")
+parser.add_argument("--run_name", type=str, default='', help="Run identifier included in output filename (e.g. condA_seed0). Empty = no suffix.")
 
 args = parser.parse_args()
 
@@ -41,7 +42,10 @@ random.seed(args.seed)
 task_type = args.task_type
 data_path = args.data_path
 
-file_path = './output/{}_{}.json'.format(args.model, args.task_type)
+if args.run_name:
+    file_path = './output/{}_{}_{}.json'.format(args.model, args.run_name, args.task_type)
+else:
+    file_path = './output/{}_{}.json'.format(args.model, args.task_type)
 
 
 with open(os.path.join(data_path,task_type), 'rb') as pkl_file:
@@ -56,6 +60,13 @@ results = []
 count = 0
 context_window = float(args.context_window)
 video = bool(args.video)
+
+# Resume: load existing results if output file exists
+if os.path.exists(file_path):
+    with open(file_path, 'r') as f:
+        results = json.load(f)
+    count = len(results)
+    print('[RESUME] Loaded {} existing results from {}'.format(count, file_path))
 
 #BUILD BASE PROMPT## 
 if model_name in ['GPT4o_MINI_Lang', 'GPT4o_Lang', 'Llama-3.2-3B', 'Llama-3.2-3B-Instruct']:
@@ -148,6 +159,9 @@ elif args.max_samples and args.max_samples > 0:
     print('Capped to', len(processed_dataset), 'samples (--max_samples)')
 
 for i, sample in enumerate(processed_dataset):
+
+    if i < count:
+        continue
 
     base64Frames = []
     vid_path = ""
@@ -438,12 +452,24 @@ for i, sample in enumerate(processed_dataset):
         img_path_list.append(full_prompt)
 
     if model_name in ['o1', 'o1-mini', 'gemini-1.5-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-flash-8b', 'gemini-1.5-pro', 'llava_video_next', 'llava_video_next_7b_dpo', 'GPT4o_Image_cot', "GPT4o_MINI_Lang", "GPT4o_Lang", "GPT4o_MINI_Image", "GPT4o_Image", 'GeminiRoboticsER']:
-        response = model.chat(full_prompt, img_frames=base64Frames, transcription=transcription, vid_path=vid_path, examples=None)
+        try:
+            response = model.chat(full_prompt, img_frames=base64Frames, transcription=transcription, vid_path=vid_path, examples=None)
+        except Exception as e:
+            print('[ERROR] API call failed for sample {}: {}'.format(i, e))
+            response = ''
     elif model_name == 'GPT4o_Image_few_shot':
         examples = get_few_shot_examples(processed_dataset, sample)
-        response = model.chat(full_prompt, img_frames=base64Frames, transcription=transcription, vid_path=vid_path, examples=examples)
+        try:
+            response = model.chat(full_prompt, img_frames=base64Frames, transcription=transcription, vid_path=vid_path, examples=examples)
+        except Exception as e:
+            print('[ERROR] API call failed for sample {}: {}'.format(i, e))
+            response = ''
     else:
-        response = model.generate(img_path_list)
+        try:
+            response = model.generate(img_path_list)
+        except Exception as e:
+            print('[ERROR] API call failed for sample {}: {}'.format(i, e))
+            response = ''
 
     count += 1
     
@@ -465,8 +491,15 @@ for i, sample in enumerate(processed_dataset):
     print()
     
     results.append({'question': full_prompt, 'response': response, 'label': answer, 'rationale': reason})
- 
+  
     print("[INFO] Total number of processed results:", "{}/{}".format(str(count),str(len(processed_dataset))))
+
+    if count % 10 == 0:
+        folder_path_save = os.path.join(os.getcwd(), 'output')
+        if not os.path.exists(folder_path_save):
+            os.makedirs(folder_path_save)
+        with open(file_path, 'w') as json_file:
+            json.dump(results, json_file, indent=4)
 
 folder_path = os.path.join(os.getcwd(), 'output')
 if not os.path.exists(folder_path):

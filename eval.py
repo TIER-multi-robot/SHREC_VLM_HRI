@@ -81,6 +81,22 @@ for exp in exps:
             pred_labels.append(pred)
             gold_labels.append(gold)
 
+        if 'agreed_multiple_subj' in task:
+            gold_count = sum(1 for v in sample['label'].values() if v == True)
+            gold = 'True' if gold_count > 1 else 'False'
+            pred = None
+            if 'true' in answer.lower():
+                pred = 'True'
+                if pred == gold:
+                    correct_count += 1
+            elif 'false' in answer.lower():
+                pred = 'False'
+                if pred == gold:
+                    correct_count += 1
+            pred_labels.append(pred)
+            gold_labels.append(gold)
+            continue
+
         if 'attribute' in task:
             
             
@@ -155,8 +171,16 @@ for exp in exps:
 
     if f1_score is not None and len(pred_labels) > 0:
         if 'detection' in task:
-            labels_set = sorted(set(gold_labels + pred_labels))
-            macro_f1 = f1_score(gold_labels, pred_labels, labels=labels_set, average='macro', zero_division=0)
+            safe_preds = [p if p is not None else 'unknown' for p in pred_labels]
+            safe_golds = [g if g is not None else 'unknown' for g in gold_labels]
+            labels_set = sorted(set(safe_golds + safe_preds))
+            macro_f1 = f1_score(safe_golds, safe_preds, labels=labels_set, average='macro', zero_division=0)
+            print("  Macro-F1 for {}: {:.3f}".format(exp, macro_f1))
+        elif 'agreed_multiple_subj' in task:
+            safe_preds = [p if p is not None else 'unknown' for p in pred_labels]
+            safe_golds = [g if g is not None else 'unknown' for g in gold_labels]
+            labels_set = sorted(set(safe_golds + safe_preds))
+            macro_f1 = f1_score(safe_golds, safe_preds, labels=labels_set, average='macro', zero_division=0)
             print("  Macro-F1 for {}: {:.3f}".format(exp, macro_f1))
         elif 'attribute' in task and 'attribute_agreed_multiple' not in exp:
             macro_f1 = f1_score(gold_labels, pred_labels, average='macro', zero_division=0)
