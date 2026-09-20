@@ -13,7 +13,7 @@ This script:
   7. Tells you what to do next
 
 Usage:
-  python setup_teammate.py
+  python data_setup.py
 """
 
 import os
