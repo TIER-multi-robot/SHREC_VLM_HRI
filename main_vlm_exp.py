@@ -185,6 +185,18 @@ for i, sample in enumerate(processed_dataset):
 
         img_path_list = get_frame_paths(frames_dir, sample['timestamp']['start'] * frame_rate, sample['timestamp']['end']* frame_rate)
         
+        # Fallback: if no frames in segment range, use nearest frame to midpoint
+        if len(img_path_list) == 0:
+            all_pngs = sorted(
+                [os.path.join(frames_dir, f) for f in os.listdir(frames_dir) if f.endswith('.png') and f[:-4].isdigit()],
+                key=lambda x: int(os.path.splitext(os.path.basename(x))[0])
+            )
+            if len(all_pngs) > 0:
+                mid_idx = int((sample['timestamp']['start'] + sample['timestamp']['end']) / 2 * frame_rate)
+                nearest = min(all_pngs, key=lambda p: abs(int(os.path.splitext(os.path.basename(p))[0]) - mid_idx))
+                img_path_list = [nearest]
+                print('[WARN] No frames in segment range, using nearest: {}'.format(os.path.basename(nearest)))
+        
 
         if model_name == 'GeminiRoboticsER':
             if args.er_video_mode == 'frame' and len(img_path_list) > 0:
