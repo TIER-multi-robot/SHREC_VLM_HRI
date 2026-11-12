@@ -8,6 +8,7 @@ output_pydantic/
 output_datasets/
 tmp/
 data/
+logs/
 
 # Python
 __pycache__/
