@@ -441,11 +441,32 @@ class Agent:
                     _contents.append(_PILImage.open(_io.BytesIO(_raw)))
 
                 _contents.append(message)
+                # Thinking parity: gemini-3.5-flash gets thinking_level explicitly
+                # set to 'high' to match gemini-robotics-er-2-preview's default
+                # thinking behavior (Google thinking docs: ER-2 default = On (high)).
+                # ER-2 keeps its original config (temperature=0, no thinking_config)
+                # so its behavior is byte-identical to the completed runs.
+                if self.model_info in ('gemini-3.5-flash', 'gemini-3.6-flash'):
+                    _cfg = _types.GenerateContentConfig(
+                        temperature=0,
+                        thinking_config=_types.ThinkingConfig(thinking_level='high'),
+                    )
+                else:
+                    _cfg = _types.GenerateContentConfig(temperature=0)
+                _dump_dir = os.environ.get('VLM_DUMP_REQUESTS')
+                if _dump_dir:
+                    import json as _json
+                    os.makedirs(_dump_dir, exist_ok=True)
+                    _dump_idx = int(os.environ.get('VLM_DUMP_IDX', '0'))
+                    os.environ['VLM_DUMP_IDX'] = str(_dump_idx + 1)
+                    with open(os.path.join(_dump_dir, 'gemini_request_{:03d}.json'.format(_dump_idx)), 'w') as _df:
+                        _json.dump({'model': self.model_info, 'config': {'temperature': 0, 'thinking': repr(_cfg)},
+                                    'contents': ['<video file: {}>'.format(vid_path) if vid_path else message, message]}, _df, indent=2)
                 _start = _time.time()
                 _resp = _client.models.generate_content(
                     model=self.model_info,
                     contents=_contents,
-                    config=_types.GenerateContentConfig(temperature=0),
+                    config=_cfg,
                 )
                 _text = _resp.text
                 _error = None

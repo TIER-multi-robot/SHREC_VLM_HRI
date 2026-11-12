@@ -48,7 +48,7 @@ CONTEXT_WINDOW = 15
 # Model registry: run key -> backend config. run key is the output-file prefix.
 MODELS = {
     'GeminiRoboticsER': {'backend': 'gemini', 'model_id': 'gemini-robotics-er-2-preview', 'conditions': ['A', 'B']},
-    'Gemini35Flash':    {'backend': 'gemini', 'model_id': 'gemini-3.5-flash', 'conditions': ['A', 'B']},
+    'Gemini35Flash':    {'backend': 'gemini', 'model_id': 'gemini-3.6-flash', 'conditions': ['A', 'B']},  # gemini-3.5-flash requests are served by gemini-3.6-flash (confirmed in sidecar logs); pinned to the stable endpoint
     'GPT4oMiniCheck':   {'backend': 'openai', 'model_id': 'gpt-4o-mini', 'conditions': ['A']},
     'CosmosReason2':    {'backend': 'vllm', 'model_id': 'nvidia/Cosmos-Reason2-32B', 'conditions': ['A', 'B']},
     'Qwen3VL':          {'backend': 'vllm', 'model_id': 'Qwen/Qwen3-VL-32B-Instruct', 'conditions': ['A', 'B']},

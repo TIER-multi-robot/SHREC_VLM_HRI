@@ -6,14 +6,28 @@ data-URI video_url, so every model receives byte-identical video files.
 
 No think/answer system-prompt format is used: the plain SHREC prompt is sent
 as-is (human decision, CP0 review).
+
+All sampling parameters are passed explicitly so the model's
+generation_config defaults do not apply; identical for both Qwen-family
+models: temperature=0 (greedy), top_p=1.0, top_k disabled (-1),
+repetition_penalty=1.0, max_tokens per CLI arg (default 4096).
 """
 
 import base64
 import json
+import os
 import time
 import urllib.request
 
 from call_log import log_call
+
+# Explicit sampling parameters shared by both Qwen-family models.
+SAMPLING_DEFAULTS = {
+    'temperature': 0,
+    'top_p': 1.0,
+    'top_k': -1,
+    'repetition_penalty': 1.0,
+}
 
 
 class VLLMClient:
@@ -27,7 +41,8 @@ class VLLMClient:
         self.call_logger = call_logger
         self.log_path = log_path
         self.run_name = run_name
-        self.n_video_frames = None  # set per call when video is sent
+        self.sampling_params = dict(SAMPLING_DEFAULTS)
+        self.dump_dir = os.environ.get('VLM_DUMP_REQUESTS')
 
     def chat(self, message, img_frames=None, transcription=None, vid_path=None, examples=None):
         content = []
@@ -50,12 +65,20 @@ class VLLMClient:
                 n_frames = None
         content.append({'type': 'text', 'text': message})
 
+        if self.dump_dir:
+            os.makedirs(self.dump_dir, exist_ok=True)
+            _idx = getattr(self, '_dump_idx', 0)
+            self._dump_idx = _idx + 1
+            with open(os.path.join(self.dump_dir, 'vllm_request_{:03d}.json'.format(_idx)), 'w') as f:
+                json.dump({'model': self.model_id, 'sampling_params': self.sampling_params,
+                           'messages': [{'role': 'user', 'content': [{'type': 'video_url', 'video_url': {'url': '<{} bytes of mp4 base64>'.format(len(b64) if vid_path else 0)}}, content[-1]]}]}, f, indent=2)
+
         payload = {
             'model': self.model_id,
             'messages': [{'role': 'user', 'content': content}],
             'max_tokens': self.max_output_tokens,
-            'temperature': 0,
         }
+        payload.update(self.sampling_params)
         start = time.time()
         error = None
         text = '[ERROR]'
@@ -86,6 +109,7 @@ class VLLMClient:
                 error=error,
                 video_frames=n_frames,
                 max_output_tokens=self.max_output_tokens,
+                sampling_params=self.sampling_params,
             )
         elif self.log_path:
             log_call(self.log_path, {
@@ -101,5 +125,6 @@ class VLLMClient:
                 'error': error,
                 'video_frames': n_frames,
                 'max_output_tokens': self.max_output_tokens,
+                'sampling_params': self.sampling_params,
             })
         return text
