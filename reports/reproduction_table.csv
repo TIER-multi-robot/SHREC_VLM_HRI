@@ -1,0 +1,14 @@
+task,metric,published_mean,published_sd,ours_seed0,abs_diff,within_2sd,note
+detection,accuracy,0.26,0.02,0.24,0.02,True,close to published
+detection,macro_f1,0.21,0.02,0.150,0.060,False,slightly below
+detection_error_only,accuracy,0.52,0.02,0.015,0.505,False,far below published
+detection_error_only,macro_f1,0.46,0.01,0.015,0.445,False,far below published
+attribute,accuracy,0.01,0.01,0.09,0.08,True,above published
+attribute,macro_f1,0.17,0.01,0.038,0.132,False,below published
+attribute,partial_match,0.41,0.04,0.07,0.340,False,far below published
+attribute_agreed_multiple_subj,accuracy,0.46,0.02,0.44,0.02,True,close
+attribute_agreed_multiple_subj,macro_f1,0.40,0.03,0.306,0.094,False,slightly below
+pre,accuracy,0.58,0.02,0.68,0.10,False,above published
+post,accuracy,0.62,0.03,0.77,0.15,False,above published
+rationale,accuracy,0.29,0.04,0.225,0.065,True,within 2 sd
+correction,accuracy,0.31,0.08,0.08,0.23,False,far below published
