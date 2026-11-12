@@ -536,13 +536,22 @@ def fill_and_write_video(frame_dir, output_dir, fps=24):
     return output_video_path
 
 
-def write_segment_video_1hz(img_paths, output_dir='./tmp'):
+def segment_video_name(video_id, start, end):
+    """Deterministic filename for a pre-rendered 1Hz segment video."""
+    return '{}_{:.3f}_{:.3f}.mp4'.format(video_id, start, end)
+
+
+def write_segment_video_1hz(img_paths, output_dir='./tmp', output_path=None):
     """Stitch segment-scoped frames into a 1 fps mp4 for video-based VLMs.
 
     This matches the SHREC paper's 1 Hz temporal resolution protocol: the released
     dataset frames are ~1 Hz samples, and this function writes them as a video at
     1 frame per second (no gap-filling, no upscaling). Only the provided frames
     (already scoped to the annotated segment) are included.
+
+    output_path: optional explicit output file path (used by prerender_videos.py
+    to write each segment to its own named file). Defaults to
+    <output_dir>/segment_1hz.mp4, preserving the original runtime behavior.
     """
     import cv2 as _cv2
     import os as _os
@@ -556,7 +565,7 @@ def write_segment_video_1hz(img_paths, output_dir='./tmp'):
         raise ValueError(f"Failed to read {img_paths[0]}")
     height, width, _ = first_frame.shape
 
-    output_video_path = _os.path.join(output_dir, 'segment_1hz.mp4')
+    output_video_path = output_path if output_path else _os.path.join(output_dir, 'segment_1hz.mp4')
     fourcc = _cv2.VideoWriter_fourcc(*'mp4v')
     out = _cv2.VideoWriter(output_video_path, fourcc, 1, (width, height))
 

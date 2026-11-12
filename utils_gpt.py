@@ -326,14 +326,15 @@ def read_video_pyav(container, indices):
     return np.stack([x.to_ndarray(format="rgb24") for x in frames])
 
 class Agent:
-    def __init__(self, instruction, model_info=None, inference_type='zero-shot', task_type='detection', er_video_mode='frame'):
+    def __init__(self, instruction, model_info=None, inference_type='zero-shot', task_type='detection', er_video_mode='frame', call_logger=None):
         self.instruction = instruction
         self.model_info = model_info
         self.inference_type = inference_type
         self.task_type = task_type
         self.er_video_mode = er_video_mode
-        if self.model_info == 'gemini-robotics-er-2-preview':
-            pass  # Gemini Robotics-ER uses the google-genai SDK; client is created per-call in chat()
+        self.call_logger = call_logger
+        if self.model_info in ('gemini-robotics-er-2-preview', 'gemini-3.5-flash'):
+            pass  # Gemini Robotics-ER / Gemini 3.5 Flash use the google-genai SDK; client is created per-call in chat()
         elif 'gemini' in self.model_info:
             self.model = genai.GenerativeModel(self.model_info)
             self._chat = self.model.start_chat(history=[])
@@ -405,7 +406,11 @@ class Agent:
         print('\nformatted message\n')
         print(message)
         # pdb.set_trace()
-        if self.model_info == 'gemini-robotics-er-2-preview':
+        if self.model_info in ('gemini-robotics-er-2-preview', 'gemini-3.5-flash'):
+            _start = None
+            _resp = None
+            _error = None
+            _text = None
             try:
                 from google import genai as _genai
                 from google.genai import types as _types
@@ -436,15 +441,30 @@ class Agent:
                     _contents.append(_PILImage.open(_io.BytesIO(_raw)))
 
                 _contents.append(message)
+                _start = _time.time()
                 _resp = _client.models.generate_content(
                     model=self.model_info,
                     contents=_contents,
                     config=_types.GenerateContentConfig(temperature=0),
                 )
-                return _resp.text
+                _text = _resp.text
+                _error = None
             except Exception as e:
                 print(e)
-                return "[ERROR]"
+                _text = "[ERROR]"
+                _error = str(e)
+            if self.call_logger:
+                _usage = getattr(_resp, 'usage_metadata', None) if _resp is not None else None
+                self.call_logger(
+                    model_version=getattr(_resp, 'model_version', None),
+                    precision='api',
+                    prompt_tokens=getattr(_usage, 'prompt_token_count', None) if _usage else None,
+                    output_tokens=getattr(_usage, 'candidates_token_count', None) if _usage else None,
+                    latency_s=round(_time.time() - _start, 3) if _start is not None else None,
+                    truncated=any(getattr(c, 'finish_reason', None) not in (None, 'STOP') for c in getattr(_resp, 'candidates', [])) if _resp is not None else None,
+                    error=_error,
+                )
+            return _text
 
         elif self.model_info in ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-flash-8b']:
             try:

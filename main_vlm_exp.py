@@ -34,10 +34,24 @@ parser.add_argument("--max_samples", type=int, default=0, help="Cap samples proc
 parser.add_argument("--er_video_mode", type=str, default='frame', choices=['frame', 'video', 'frames15'], help="GeminiRoboticsER visual input mode: 'frame' = single midpoint still frame, 'video' = 1Hz stitched mp4 from segment frames (via Files API), 'frames15' = up to 15 uniformly sampled frames as images.")
 parser.add_argument("--sample_size", type=int, default=0, help="Sample N examples after shuffle for 3-seed protocol (0 = all). Use with --seed for reproducible subsets.")
 parser.add_argument("--run_name", type=str, default='', help="Run identifier included in output filename (e.g. condA_seed0). Empty = no suffix.")
+parser.add_argument("--backend", type=str, default='gemini', choices=['gemini', 'openai', 'vllm'], help="Inference backend. gemini = Gemini API (ER / 3.5 Flash), openai = OpenAI API, vllm = local vLLM server.")
+parser.add_argument("--model_id", type=str, default=None, help="Backend-specific model id (API model string or HuggingFace repo id).")
+parser.add_argument("--precision", type=str, default='bf16', help="Model precision for local backends.")
+parser.add_argument("--max_output_tokens", type=int, default=4096, help="Max output tokens (local backends).")
+parser.add_argument("--vllm_url", type=str, default='http://localhost:8000/v1', help="vLLM server base URL.")
+parser.add_argument("--videos_dir", type=str, default=None, help="Directory of pre-rendered 1Hz segment videos (data/videos_1hz). If set, videos are looked up by segment key instead of rendered at runtime.")
 
 args = parser.parse_args()
 
 random.seed(args.seed)
+
+# Sidecar call logging: SHREC/logs/calls/<run>.jsonl (one JSON line per API call)
+from call_log import call_logger_for
+run_id = args.run_name if args.run_name else 'full'
+run_name_for_log = '{}_{}_{}'.format(args.model, run_id, args.task_type)
+_log_path = os.path.join('./logs/calls', run_name_for_log + '.jsonl')
+SAMPLE_REF = {'i': None}
+call_logger = call_logger_for(_log_path, run_name_for_log, args.model_id or args.model, args.backend, SAMPLE_REF)
 
 task_type = args.task_type
 data_path = args.data_path
@@ -128,6 +142,15 @@ if model_name in ['gemini-1.5-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-flash-
 if model_name == 'GeminiRoboticsER':
     from utils_gpt import * 
     model = Agent(base_prompt, model_info='gemini-robotics-er-2-preview', inference_type='zero-shot', task_type=args.task_type, er_video_mode=args.er_video_mode)
+if model_name == 'Gemini35Flash':
+    from utils_gpt import *
+    model = Agent(base_prompt, model_info='gemini-3.5-flash', inference_type='zero-shot', task_type=args.task_type, er_video_mode=args.er_video_mode, call_logger=call_logger)
+if model_name == 'GPT4oMiniCheck':
+    from utils_gpt import *
+    model = Agent(base_prompt, model_info='gpt-4o-mini', inference_type='lang-only', task_type=args.task_type, call_logger=call_logger)
+if model_name in ['vllm_local', 'CosmosReason2', 'Qwen3VL', 'CosmosReason2_2B', 'Qwen3VL_2B']:
+    from utils_vllm import VLLMClient
+    model = VLLMClient(args.model_id, base_url=args.vllm_url, precision=args.precision, max_output_tokens=args.max_output_tokens, call_logger=call_logger, run_name=run_name_for_log)
 if model_name in ['GPT4o_Image_few_shot']:
     from utils_gpt import * 
     model = Agent(base_prompt, model_info='gpt-4o', inference_type='few-shot', task_type=args.task_type)
@@ -159,6 +182,8 @@ elif args.max_samples and args.max_samples > 0:
     print('Capped to', len(processed_dataset), 'samples (--max_samples)')
 
 for i, sample in enumerate(processed_dataset):
+
+    SAMPLE_REF['i'] = i
 
     if i < count:
         continue
@@ -204,17 +229,31 @@ for i, sample in enumerate(processed_dataset):
             elif args.er_video_mode == 'frames15' and len(img_path_list) > 15:
                 step = max(1, len(img_path_list) // 15)
                 img_path_list = img_path_list[::step][:15]
+        if model_name in ['Gemini35Flash']:
+            if args.er_video_mode == 'frame' and len(img_path_list) > 0:
+                img_path_list = [img_path_list[len(img_path_list) // 2]]
+            elif args.er_video_mode == 'frames15' and len(img_path_list) > 15:
+                step = max(1, len(img_path_list) // 15)
+                img_path_list = img_path_list[::step][:15]
 
 
-        if model_name in ['o1', 'o1-mini','gemini-1.5-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-flash-8b', 'gemini-1.5-pro', 'llava_video_next', 'llava_video_next_7b_dpo', 'GPT4o_Image_cot', 'GPT4o_Image_few_shot', "GPT4o_MINI_Lang", "GPT4o_Lang", "GPT4o_MINI_Image", "GPT4o_Image", 'GeminiRoboticsER']:
+        if model_name in ['o1', 'o1-mini','gemini-1.5-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-flash-8b', 'gemini-1.5-pro', 'llava_video_next', 'llava_video_next_7b_dpo', 'GPT4o_Image_cot', 'GPT4o_Image_few_shot', "GPT4o_MINI_Lang", "GPT4o_Lang", "GPT4o_MINI_Image", "GPT4o_Image", 'GeminiRoboticsER', 'Gemini35Flash', 'GPT4oMiniCheck', 'vllm_local', 'CosmosReason2', 'Qwen3VL', 'CosmosReason2_2B', 'Qwen3VL_2B']:
             print('extract video for gemini/openai models')
             base64Frames = process_images_base64(img_path_list)
             
             vid_path = ""
+            prerendered = None
+            if args.videos_dir:
+                from utils import segment_video_name
+                cand = os.path.join(args.videos_dir, segment_video_name(video_id, sample['timestamp']['start'], sample['timestamp']['end']))
+                if os.path.exists(cand):
+                    prerendered = cand
             if 'gemini' in model_name:
                 vid_path = fill_and_write_video(frames_dir, './tmp', fps=frame_rate)
-            elif model_name == 'GeminiRoboticsER' and args.er_video_mode == 'video':
-                vid_path = write_segment_video_1hz(img_path_list, './tmp')
+            elif (model_name in ('GeminiRoboticsER', 'Gemini35Flash')) and args.er_video_mode == 'video':
+                vid_path = prerendered if prerendered else write_segment_video_1hz(img_path_list, './tmp')
+            elif model_name in ('vllm_local', 'CosmosReason2', 'Qwen3VL', 'CosmosReason2_2B', 'Qwen3VL_2B'):
+                vid_path = prerendered if prerendered else write_segment_video_1hz(img_path_list, './tmp')
             
             if 'transcript' in sample.keys():
                 transcription = sample['transcript']
@@ -463,7 +502,7 @@ for i, sample in enumerate(processed_dataset):
     else:
         img_path_list.append(full_prompt)
 
-    if model_name in ['o1', 'o1-mini', 'gemini-1.5-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-flash-8b', 'gemini-1.5-pro', 'llava_video_next', 'llava_video_next_7b_dpo', 'GPT4o_Image_cot', "GPT4o_MINI_Lang", "GPT4o_Lang", "GPT4o_MINI_Image", "GPT4o_Image", 'GeminiRoboticsER']:
+    if model_name in ['o1', 'o1-mini', 'gemini-1.5-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-flash-8b', 'gemini-1.5-pro', 'llava_video_next', 'llava_video_next_7b_dpo', 'GPT4o_Image_cot', "GPT4o_MINI_Lang", "GPT4o_Lang", "GPT4o_MINI_Image", "GPT4o_Image", 'GeminiRoboticsER', 'Gemini35Flash', 'GPT4oMiniCheck', 'vllm_local', 'CosmosReason2', 'Qwen3VL', 'CosmosReason2_2B', 'Qwen3VL_2B']:
         try:
             response = model.chat(full_prompt, img_frames=base64Frames, transcription=transcription, vid_path=vid_path, examples=None)
         except Exception as e:

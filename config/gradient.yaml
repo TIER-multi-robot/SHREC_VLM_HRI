@@ -1,0 +1,28 @@
+# Gradient grouping (working hypothesis; revise as results come in).
+# Commit each revision with a one-line reason in the commit message.
+
+tasks:
+  grounded:
+    - detection
+    - detection_error_only
+    - pre
+    - post
+  intermediate:
+    - attribute_agreed_multiple_subj
+    - correction
+  inferred:
+    - attribute
+    - rationale
+
+# Attribute-level grouping for the attribute task (attribute identification)
+attributes:
+  grounded:
+    - Conversational Mechanics
+    - Social Norms and Routines
+  middle:
+    - Engagement
+    - Social Context and Relationships
+  inferred:
+    - Emotions
+    - Intention
+    - Knowledge State

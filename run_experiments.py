@@ -45,6 +45,17 @@ IMAGES_DIR = '../shrec_empathic'
 DATA_PATH = './output_datasets'
 CONTEXT_WINDOW = 15
 
+# Model registry: run key -> backend config. run key is the output-file prefix.
+MODELS = {
+    'GeminiRoboticsER': {'backend': 'gemini', 'model_id': 'gemini-robotics-er-2-preview', 'conditions': ['A', 'B']},
+    'Gemini35Flash':    {'backend': 'gemini', 'model_id': 'gemini-3.5-flash', 'conditions': ['A', 'B']},
+    'GPT4oMiniCheck':   {'backend': 'openai', 'model_id': 'gpt-4o-mini', 'conditions': ['A']},
+    'CosmosReason2':    {'backend': 'vllm', 'model_id': 'nvidia/Cosmos-Reason2-32B', 'conditions': ['A', 'B']},
+    'Qwen3VL':          {'backend': 'vllm', 'model_id': 'Qwen/Qwen3-VL-32B-Instruct', 'conditions': ['A', 'B']},
+    'CosmosReason2_2B': {'backend': 'vllm', 'model_id': 'nvidia/Cosmos-Reason2-2B', 'conditions': ['A', 'B']},
+    'Qwen3VL_2B':       {'backend': 'vllm', 'model_id': 'Qwen/Qwen3-VL-2B-Instruct', 'conditions': ['A', 'B']},
+}
+
 TASKS = {
     'detection': {
         'pickle': 'shrec_empathic_detection.pickle',
@@ -110,7 +121,7 @@ def run_name_for(condition, seed):
     return 'cond{}_seed{}'.format(condition, seed)
 
 
-def build_command(task_name, task_config, condition_config, seed, run_name, sample_override=None):
+def build_command(task_name, task_config, condition_config, seed, run_name, sample_override=None, model_cfg=None, extra_args=None):
     """Build the main_vlm_exp.py command for a single run."""
     cmd = [
         sys.executable, 'main_vlm_exp.py',
@@ -126,6 +137,12 @@ def build_command(task_name, task_config, condition_config, seed, run_name, samp
 
     sample_size = sample_override if sample_override else task_config['sample_size']
     cmd.extend(['--sample_size', str(sample_size)])
+
+    if model_cfg:
+        cmd.extend(['--backend', model_cfg['backend']])
+        cmd.extend(['--model_id', model_cfg['model_id']])
+    if extra_args:
+        cmd.extend(extra_args)
 
     if condition_config['video']:
         cmd.append('--video')
@@ -148,7 +165,7 @@ def is_run_complete(run_name, task_pickle, expected_count):
 
 
 def run_one(task_name, task_config, condition_name, condition_config, seed,
-            sample_override=None, dry_run=False):
+            sample_override=None, dry_run=False, model_cfg=None, extra_args=None):
     """Execute a single experiment configuration."""
     run_name = run_name_for(condition_name, seed)
     sample_size = sample_override if sample_override else task_config['sample_size']
@@ -166,7 +183,7 @@ def run_one(task_name, task_config, condition_name, condition_config, seed,
         except:
             pass
 
-    cmd = build_command(task_name, task_config, condition_config, seed, run_name, sample_override)
+    cmd = build_command(task_name, task_config, condition_config, seed, run_name, sample_override, model_cfg=model_cfg, extra_args=extra_args)
 
     print('  [RUN] {} samples, seed={}'.format(sample_size, seed))
     print('        {}'.format(' '.join(cmd)))
@@ -263,7 +280,26 @@ def main():
     parser.add_argument('--skip-eval', action='store_true', help='Skip pydantic parsing and final eval')
     parser.add_argument('--sample-override', type=int, default=None,
                         help='Override all sample sizes (for testing)')
+    parser.add_argument('--model', type=str, default='GeminiRoboticsER',
+                        help='Model run key. Available: ' + ', '.join(MODELS.keys()))
+    parser.add_argument('--precision', type=str, default='bf16', help='Precision for local backends')
+    parser.add_argument('--max-output-tokens', type=int, default=4096, help='Max output tokens for local backends')
+    parser.add_argument('--vllm-url', type=str, default='http://localhost:8000/v1', help='vLLM server base URL')
+    parser.add_argument('--videos-dir', type=str, default='./data/videos_1hz', help='Pre-rendered 1Hz segment videos dir')
     args = parser.parse_args()
+
+    global MODEL
+    MODEL = args.model
+    if MODEL not in MODELS:
+        print('ERROR: Unknown model "{}". Available: {}'.format(MODEL, ', '.join(MODELS.keys())))
+        sys.exit(1)
+    model_cfg = MODELS[MODEL]
+
+    extra_args = []
+    if model_cfg['backend'] == 'vllm':
+        extra_args += ['--precision', args.precision, '--max_output_tokens', str(args.max_output_tokens), '--vllm_url', args.vllm_url]
+    if MODEL != 'GeminiRoboticsER':
+        extra_args += ['--videos_dir', args.videos_dir]
 
     # Filter tasks
     tasks_to_run = TASKS
@@ -290,6 +326,8 @@ def main():
     run_list = []
     for task_name, task_config in tasks_to_run.items():
         for condition_name, condition_config in conditions_to_run.items():
+            if 'conditions' in model_cfg and condition_name not in model_cfg['conditions']:
+                continue
             for seed in seeds_to_run:
                 run_list.append((task_name, task_config, condition_name, condition_config, seed))
 
@@ -318,6 +356,8 @@ def main():
             task_name, task_config, condition_name, condition_config, seed,
             sample_override=args.sample_override,
             dry_run=args.dry_run,
+            model_cfg=model_cfg,
+            extra_args=extra_args,
         )
         key = '{}_{}_seed{}'.format(task_name, condition_name, seed)
         results[key] = status
