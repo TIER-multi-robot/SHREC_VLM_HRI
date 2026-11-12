@@ -76,7 +76,18 @@ class VLLMClient:
             error = str(e)
 
         latency = time.time() - start
-        if self.call_logger or self.log_path:
+        if self.call_logger:
+            self.call_logger(
+                model_version=self.model_id,
+                prompt_tokens=usage.get('prompt_tokens'),
+                output_tokens=usage.get('completion_tokens'),
+                latency_s=round(latency, 3),
+                truncated=truncated,
+                error=error,
+                video_frames=n_frames,
+                max_output_tokens=self.max_output_tokens,
+            )
+        elif self.log_path:
             log_call(self.log_path, {
                 'run_name': self.run_name,
                 'model': self.model_id,
