@@ -543,6 +543,7 @@ class Agent:
 
                 # self.messages.append({"role": "user", "content": message})
 
+                _start_t = time.time()
                 if self.inference_type != 'lang-only':
                     response = client.chat.completions.create(
                         model=self.model_info,
@@ -621,6 +622,17 @@ class Agent:
 
                 print(f"Input Tokens: {input_tokens}, Output Tokens: {output_tokens}, Total Tokens: {total_tokens}")
                 print(f"Estimated Cost: ${total_cost:.4f}")
+
+                if self.call_logger:
+                    self.call_logger(
+                        model_version=getattr(response, 'model', None),
+                        precision='api',
+                        prompt_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        latency_s=round(time.time() - _start_t, 3),
+                        truncated=getattr(response.choices[0], 'finish_reason', None) == 'length',
+                        error=None,
+                    )
 
                 return response.choices[0].message.content
             

@@ -1,22 +1,28 @@
+# Pinned to the versions actually installed in the API environment (venv),
+# verified 2026-11-12. ER runs (Sept 2026) used the same environment lineage
+# (opencv 5.0.0.93 dist-info created 2026-08-21).
+google-genai==2.19.0
+httpx==0.28.1
+natsort==8.4.0
+numpy==2.5.1
+openai==3.3.1
+opencv_python==5.0.0.93
+pandas==3.0.5
+Pillow==12.3.0
+pydantic==2.13.4
+scikit_learn==1.9.0
+tqdm==4.70.0
+urllib3==2.7.0
+
+# Optional heavy deps for open-source-VLM handlers (not needed for Gemini/GPT/vLLM paths)
 av==14.2.0
 datasets==3.6.0
 decord==0.6.0
 easydict==1.13
 huggingface_hub==0.26.2
 matplotlib==3.5.1
-natsort==8.2.0
-numpy==2.2.5
-openai==1.40.0
-opencv_python==4.10.0.84
-pandas==1.4.2
-Pillow==11.2.1
 protobuf==6.30.2
-pydantic==2.11.4
 Requests==2.32.3
-scikit_learn==1.0.2
-torch==2.5.0
 torch==2.7.0
-torchvision==0.15.2
 torchvision==0.22.0
-tqdm==4.67.1
 transformers==4.46.2

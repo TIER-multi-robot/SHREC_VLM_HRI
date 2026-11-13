@@ -48,7 +48,28 @@ class VLLMClient:
         content = []
         truncated = False
         n_frames = 0
+        single_frame_duplicated = False
 
+        if vid_path:
+            import cv2
+            cap = cv2.VideoCapture(vid_path)
+            n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            cap.release()
+            # Qwen3VL processor requires >= 2 frames (temporal_factor=2).
+            # Human decision (CP2 review): duplicate the single frame at request
+            # time; flagged in the sidecar; sensitivity analysis excludes these.
+            if n_frames == 1:
+                cap = cv2.VideoCapture(vid_path)
+                ret, frame = cap.read()
+                cap.release()
+                h, w = frame.shape[:2]
+                tmp_path = vid_path + '.2frame.mp4'
+                writer = cv2.VideoWriter(tmp_path, cv2.VideoWriter_fourcc(*'mp4v'), 1, (w, h))
+                writer.write(frame); writer.write(frame)
+                writer.release()
+                vid_path = tmp_path
+                n_frames = 2
+                single_frame_duplicated = True
         if vid_path:
             with open(vid_path, 'rb') as f:
                 b64 = base64.b64encode(f.read()).decode('ascii')
@@ -56,13 +77,6 @@ class VLLMClient:
                 'type': 'video_url',
                 'video_url': {'url': 'data:video/mp4;base64,' + b64},
             })
-            try:
-                import cv2
-                cap = cv2.VideoCapture(vid_path)
-                n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                cap.release()
-            except Exception:
-                n_frames = None
         content.append({'type': 'text', 'text': message})
 
         if self.dump_dir:
@@ -108,6 +122,7 @@ class VLLMClient:
                 truncated=truncated,
                 error=error,
                 video_frames=n_frames,
+                single_frame_duplicated=single_frame_duplicated,
                 max_output_tokens=self.max_output_tokens,
                 sampling_params=self.sampling_params,
             )
@@ -124,6 +139,7 @@ class VLLMClient:
                 'truncated': truncated,
                 'error': error,
                 'video_frames': n_frames,
+                'single_frame_duplicated': single_frame_duplicated,
                 'max_output_tokens': self.max_output_tokens,
                 'sampling_params': self.sampling_params,
             })
