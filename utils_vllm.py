@@ -29,6 +29,16 @@ SAMPLING_DEFAULTS = {
     'repetition_penalty': 1.0,
 }
 
+# Reasoning-elicitation suffix for Cosmos-Reason2 models, appended as a
+# system message. Source: RAW README.md of nvidia/Cosmos-Reason2-32B
+# (https://huggingface.co/nvidia/Cosmos-Reason2-32B/raw/main/README.md),
+# Input section, "Other Properties Related to Input". Literal card text:
+# Answer the question in the following format: <think>\nyour reasoning\n</think>\n\n\n<answer>\nyour answer\n</answer>.
+# (README escape sequences interpreted as newlines below.)
+# Reasoning parity decision (CP2e): matches reasoning behavior within
+# the Cosmos/Qwen model pair; the SHREC task prompt itself is unchanged.
+COSMOS_REASONING_SUFFIX = 'Answer the question in the following format: <think>\nyour reasoning\n</think>\n\n<answer>\nyour answer\n</answer>.'
+
 
 class VLLMClient:
     def __init__(self, model_id, base_url='http://localhost:8000/v1',
@@ -89,9 +99,13 @@ class VLLMClient:
 
         payload = {
             'model': self.model_id,
-            'messages': [{'role': 'user', 'content': content}],
+            'messages': [],
             'max_tokens': self.max_output_tokens,
         }
+        if 'Cosmos' in self.model_id:
+            payload['messages'].append(
+                {'role': 'system', 'content': COSMOS_REASONING_SUFFIX})
+        payload['messages'].append({'role': 'user', 'content': content})
         payload.update(self.sampling_params)
         start = time.time()
         error = None

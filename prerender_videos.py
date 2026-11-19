@@ -56,7 +56,10 @@ def main():
         with open(os.path.join(data_path, pickle_name), 'rb') as f:
             dataset = pickle.load(f)
         for seed in SEEDS:
-            random.seed(seed)
+            # main_vlm_exp.py's argparse leaves --seed as a str; random.seed()
+            # is type-sensitive, so seed with str(seed) to replay the same
+            # selection the runner uses.
+            random.seed(str(seed))
             d = dataset[:]
             random.shuffle(d)
             for s in d[:n]:
