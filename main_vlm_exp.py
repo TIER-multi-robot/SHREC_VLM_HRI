@@ -208,19 +208,34 @@ for i, sample in enumerate(processed_dataset):
         frame_rate = df[df['file_name'] == video_id]['framerate'].item()
         frames_dir = os.path.join(images_dir, video_id)
 
-        img_path_list = get_frame_paths(frames_dir, sample['timestamp']['start'] * frame_rate, sample['timestamp']['end']* frame_rate)
-        
-        # Fallback: if no frames in segment range, use nearest frame to midpoint
-        if len(img_path_list) == 0:
-            all_pngs = sorted(
-                [os.path.join(frames_dir, f) for f in os.listdir(frames_dir) if f.endswith('.png') and f[:-4].isdigit()],
-                key=lambda x: int(os.path.splitext(os.path.basename(x))[0])
-            )
-            if len(all_pngs) > 0:
-                mid_idx = int((sample['timestamp']['start'] + sample['timestamp']['end']) / 2 * frame_rate)
-                nearest = min(all_pngs, key=lambda p: abs(int(os.path.splitext(os.path.basename(p))[0]) - mid_idx))
-                img_path_list = [nearest]
-                print('[WARN] No frames in segment range, using nearest: {}'.format(os.path.basename(nearest)))
+        # Resolve the pre-rendered 1Hz segment video FIRST. vLLM models use the
+        # mp4 directly (VLLMClient uses vid_path only) and do not need the raw
+        # frame directory, which is absent on cloud volumes (Modal). Gemini/ER
+        # paths still require the frames list.
+        prerendered = None
+        if args.videos_dir:
+            from utils import segment_video_name
+            cand = os.path.join(args.videos_dir, segment_video_name(video_id, sample['timestamp']['start'], sample['timestamp']['end']))
+            if os.path.exists(cand):
+                prerendered = cand
+        _is_vllm_model = model_name in ('vllm_local', 'CosmosReason2', 'Qwen3VL', 'CosmosReason2_2B', 'Qwen3VL_2B')
+
+        if prerendered and _is_vllm_model:
+            img_path_list = []  # frames unused by VLLMClient (vid_path only)
+        else:
+            img_path_list = get_frame_paths(frames_dir, sample['timestamp']['start'] * frame_rate, sample['timestamp']['end']* frame_rate)
+
+            # Fallback: if no frames in segment range, use nearest frame to midpoint
+            if len(img_path_list) == 0:
+                all_pngs = sorted(
+                    [os.path.join(frames_dir, f) for f in os.listdir(frames_dir) if f.endswith('.png') and f[:-4].isdigit()],
+                    key=lambda x: int(os.path.splitext(os.path.basename(x))[0])
+                )
+                if len(all_pngs) > 0:
+                    mid_idx = int((sample['timestamp']['start'] + sample['timestamp']['end']) / 2 * frame_rate)
+                    nearest = min(all_pngs, key=lambda p: abs(int(os.path.splitext(os.path.basename(p))[0]) - mid_idx))
+                    img_path_list = [nearest]
+                    print('[WARN] No frames in segment range, using nearest: {}'.format(os.path.basename(nearest)))
         
 
         if model_name == 'GeminiRoboticsER':
@@ -239,21 +254,21 @@ for i, sample in enumerate(processed_dataset):
 
         if model_name in ['o1', 'o1-mini','gemini-1.5-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-flash-8b', 'gemini-1.5-pro', 'llava_video_next', 'llava_video_next_7b_dpo', 'GPT4o_Image_cot', 'GPT4o_Image_few_shot', "GPT4o_MINI_Lang", "GPT4o_Lang", "GPT4o_MINI_Image", "GPT4o_Image", 'GeminiRoboticsER', 'Gemini35Flash', 'GPT4oMiniCheck', 'vllm_local', 'CosmosReason2', 'Qwen3VL', 'CosmosReason2_2B', 'Qwen3VL_2B']:
             print('extract video for gemini/openai models')
-            base64Frames = process_images_base64(img_path_list)
-            
+            base64Frames = process_images_base64(img_path_list) if img_path_list else []
+
             vid_path = ""
-            prerendered = None
-            if args.videos_dir:
-                from utils import segment_video_name
-                cand = os.path.join(args.videos_dir, segment_video_name(video_id, sample['timestamp']['start'], sample['timestamp']['end']))
-                if os.path.exists(cand):
-                    prerendered = cand
             if 'gemini' in model_name:
                 vid_path = fill_and_write_video(frames_dir, './tmp', fps=frame_rate)
             elif (model_name in ('GeminiRoboticsER', 'Gemini35Flash')) and args.er_video_mode == 'video':
                 vid_path = prerendered if prerendered else write_segment_video_1hz(img_path_list, './tmp')
-            elif model_name in ('vllm_local', 'CosmosReason2', 'Qwen3VL', 'CosmosReason2_2B', 'Qwen3VL_2B'):
-                vid_path = prerendered if prerendered else write_segment_video_1hz(img_path_list, './tmp')
+            elif _is_vllm_model:
+                if prerendered is None:
+                    raise FileNotFoundError(
+                        'No pre-rendered video for {} in videos_dir {!r}; '
+                        'vLLM models require the pre-rendered 1Hz segment '
+                        'video (images_dir frames are not available on '
+                        'Modal).'.format(video_id, args.videos_dir))
+                vid_path = prerendered
             
             if 'transcript' in sample.keys():
                 transcription = sample['transcript']
