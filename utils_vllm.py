@@ -16,10 +16,19 @@ repetition_penalty=1.0, max_tokens per CLI arg (default 4096).
 import base64
 import json
 import os
+import socket
 import time
 import urllib.request
 
 from call_log import log_call
+
+# Request timeout: connect+read. A hung request must fail the SAMPLE as
+# [ERROR] rather than stall the run for hours (b3 incident: four stalled runs).
+REQUEST_TIMEOUT_S = 600
+# Consecutive timeouts before the run is killed (SystemExit bypasses the
+# broad `except Exception` in main_vlm_exp, so the run exits non-zero and
+# gets redone by the orchestrator's skip-complete logic).
+MAX_CONSECUTIVE_TIMEOUTS = 3
 
 # Explicit sampling parameters shared by both Qwen-family models.
 SAMPLING_DEFAULTS = {
@@ -117,7 +126,7 @@ class VLLMClient:
                 data=json.dumps(payload).encode('utf-8'),
                 headers={'Content-Type': 'application/json'},
             )
-            with urllib.request.urlopen(req) as resp:
+            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_S) as resp:
                 out = json.loads(resp.read())
             choice = out['choices'][0]
             text = choice['message']['content']
@@ -125,6 +134,18 @@ class VLLMClient:
             usage = out.get('usage', {})
         except Exception as e:
             error = str(e)
+            if isinstance(e, (socket.timeout, TimeoutError)) or 'timed out' in str(e):
+                self._consecutive_timeouts = getattr(self, '_consecutive_timeouts', 0) + 1
+                if self._consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS:
+                    # Kill the run (non-zero exit) so it is redone cleanly
+                    # instead of hanging forever on a dead server.
+                    raise SystemExit(
+                        'vLLM request timed out {} times in a row (timeout={}s); '
+                        'failing run {}'.format(self._consecutive_timeouts, REQUEST_TIMEOUT_S, self.run_name))
+            else:
+                self._consecutive_timeouts = 0
+        else:
+            self._consecutive_timeouts = 0
 
         latency = time.time() - start
         if self.call_logger:
