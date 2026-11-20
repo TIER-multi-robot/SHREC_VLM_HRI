@@ -24,7 +24,7 @@ for model, run in [('GPT4oMiniCheck', 'condA_seed0'), ('GeminiRoboticsER', 'cond
 
 # label distribution of the selected error_only samples (seed 0 replay)
 with open('output_datasets/shrec_empathic_detection_error_only.pickle', 'rb') as f: ds = pickle.load(f)
-random.seed(0); d = ds[:]; random.shuffle(d); d = d[:200]
+random.seed('0'); d = ds[:]; random.shuffle(d); d = d[:200]
 print('error_only selected-200 label dist:', Counter('error' if s['error'] is True else 'competence' if s['error'] is False else 'none' for s in d))
 print('error_only FULL pickle label dist:', Counter('error' if s['error'] is True else 'competence' if s['error'] is False else 'none' for s in ds))
 

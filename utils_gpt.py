@@ -333,7 +333,7 @@ class Agent:
         self.task_type = task_type
         self.er_video_mode = er_video_mode
         self.call_logger = call_logger
-        if self.model_info in ('gemini-robotics-er-2-preview', 'gemini-3.5-flash'):
+        if self.model_info in ('gemini-robotics-er-2-preview', 'gemini-3.5-flash', 'gemini-3.6-flash'):
             pass  # Gemini Robotics-ER / Gemini 3.5 Flash use the google-genai SDK; client is created per-call in chat()
         elif 'gemini' in self.model_info:
             self.model = genai.GenerativeModel(self.model_info)
@@ -406,7 +406,7 @@ class Agent:
         print('\nformatted message\n')
         print(message)
         # pdb.set_trace()
-        if self.model_info in ('gemini-robotics-er-2-preview', 'gemini-3.5-flash'):
+        if self.model_info in ('gemini-robotics-er-2-preview', 'gemini-3.5-flash', 'gemini-3.6-flash'):
             _start = None
             _resp = None
             _error = None
@@ -469,7 +469,15 @@ class Agent:
                     config=_cfg,
                 )
                 _text = _resp.text
-                _error = None
+                if _text is None:
+                    # Response with no text parts (e.g. thinking-only or
+                    # safety-blocked candidate). Record as error, keep the
+                    # pipeline alive.
+                    _text = "[ERROR]"
+                    _error = 'empty response: no text parts (finish_reason: {})'.format(
+                        getattr(getattr(_resp, 'candidates', [None])[0], 'finish_reason', None))
+                else:
+                    _error = None
             except Exception as e:
                 print(e)
                 _text = "[ERROR]"
@@ -481,6 +489,7 @@ class Agent:
                     precision='api',
                     prompt_tokens=getattr(_usage, 'prompt_token_count', None) if _usage else None,
                     output_tokens=getattr(_usage, 'candidates_token_count', None) if _usage else None,
+                    thinking_tokens=getattr(_usage, 'thoughts_token_count', None) if _usage else None,
                     latency_s=round(_time.time() - _start, 3) if _start is not None else None,
                     truncated=any(getattr(c, 'finish_reason', None) not in (None, 'STOP') for c in getattr(_resp, 'candidates', [])) if _resp is not None else None,
                     error=_error,

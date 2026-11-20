@@ -51,7 +51,7 @@ for task, n in TASKS.items():
         ds = pickle.load(f)
     cnt = tot = 0
     for seed in (0, 1, 2):
-        random.seed(seed); d = ds[:]; random.shuffle(d); d = d[:n]
+        random.seed(str(seed)); d = ds[:]; random.shuffle(d); d = d[:n]
         for s in d:
             tot += 1
             key = segment_video_name(s['video_id'], s['timestamp']['start'], s['timestamp']['end'])

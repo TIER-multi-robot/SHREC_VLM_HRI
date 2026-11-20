@@ -41,7 +41,11 @@ def main():
         with open(os.path.join(DATA_PATH, pickle_name), 'rb') as f:
             dataset = pickle.load(f)
         for seed in SEEDS:
-            random.seed(seed)
+            # main_vlm_exp.py receives --seed as a string and calls
+            # random.seed(args.seed) with that string; string and int seeds
+            # produce different shuffles, so the replay must seed with the
+            # string form.
+            random.seed(str(seed))
             shuffled = dataset[:]
             random.shuffle(shuffled)
             for idx, sample in enumerate(shuffled[:n]):

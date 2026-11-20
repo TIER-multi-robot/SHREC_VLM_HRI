@@ -144,7 +144,7 @@ if model_name == 'GeminiRoboticsER':
     model = Agent(base_prompt, model_info='gemini-robotics-er-2-preview', inference_type='zero-shot', task_type=args.task_type, er_video_mode=args.er_video_mode)
 if model_name == 'Gemini35Flash':
     from utils_gpt import *
-    model = Agent(base_prompt, model_info='gemini-3.5-flash', inference_type='zero-shot', task_type=args.task_type, er_video_mode=args.er_video_mode, call_logger=call_logger)
+    model = Agent(base_prompt, model_info=args.model_id or 'gemini-3.5-flash', inference_type='zero-shot', task_type=args.task_type, er_video_mode=args.er_video_mode, call_logger=call_logger)
 if model_name == 'GPT4oMiniCheck':
     from utils_gpt import *
     model = Agent(base_prompt, model_info='gpt-4o-mini', inference_type='lang-only', task_type=args.task_type, call_logger=call_logger)
@@ -564,12 +564,16 @@ for i, sample in enumerate(processed_dataset):
         folder_path_save = os.path.join(os.getcwd(), 'output')
         if not os.path.exists(folder_path_save):
             os.makedirs(folder_path_save)
-        with open(file_path, 'w') as json_file:
+        _tmp_path = file_path + '.tmp'
+        with open(_tmp_path, 'w') as json_file:
             json.dump(results, json_file, indent=4)
+        os.replace(_tmp_path, file_path)
 
 folder_path = os.path.join(os.getcwd(), 'output')
 if not os.path.exists(folder_path):
     os.makedirs(folder_path)
 
-with open(file_path, 'w') as json_file:
+_tmp_path = file_path + '.tmp'
+with open(_tmp_path, 'w') as json_file:
     json.dump(results, json_file, indent=4)
+os.replace(_tmp_path, file_path)
